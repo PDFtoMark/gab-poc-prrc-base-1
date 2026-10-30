@@ -1,0 +1,44 @@
+name: prrc
+on:
+  pull_request_review_comment:
+    types: [created]
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+jobs:
+  t:
+    if: github.event.sender.type != 'Bot' && contains(github.event.comment.body, '/bonk')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: env facts
+        env:
+          S: ${{ secrets.POC_SECRET }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          set -x
+          echo "event=$GITHUB_EVENT_NAME"
+          echo "ref=$GITHUB_REF"
+          echo "sha=$GITHUB_SHA"
+          echo "head=$(git rev-parse HEAD)"
+          echo "attacker_marker=$(cat poc-marker.txt 2>/dev/null || echo NONE)"
+          echo "bunfig_present=$(test -f bunfig.toml && echo YES || echo NO)"
+          echo "commenter=$COMMENTER secret_len=${#S}"
+          jq -c '{head:.pull_request.head.repo.full_name, base:.pull_request.base.repo.full_name, n:.pull_request.number}' "$GITHUB_EVENT_PATH"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3"
+      - name: preflight-shaped bun run from workspace cwd
+        run: |
+          printf 'console.log("STUB_ORCHESTRATE_RAN");\n' > /tmp/orchestrate.ts
+          bun run /tmp/orchestrate.ts || echo BUN_RUN_FAILED
+      - name: token permissions
+        if: always()
+        run: |
+          curl -sS -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/$GITHUB_REPOSITORY | jq -c '.permissions'
+          curl -sS -o /dev/null -w 'push_test_http=%{http_code}\n' -X POST -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/$GITHUB_REPOSITORY/git/refs -d '{"ref":"refs/heads/poc-push-test","sha":"'"$(git rev-parse HEAD)"'"}'
